@@ -1,0 +1,88 @@
+# Adaptation and training
+
+[Main guide](../README.md)
+
+## What is available
+
+| Component | Starting point | Work still required |
+| --- | --- | --- |
+| Nominal controller | [SONIC training and checkpoints](https://github.com/NVlabs/GR00T-WholeBodyControl) | Reproduce the selected G1 baseline |
+| Transfer method | [TRACE paper](https://arxiv.org/abs/2610.17999) and [H2 deployment](https://github.com/QinnyuLan/SONIC_unitree_h2) | Adapt the method to G1 contact tasks |
+| Decoder LoRA example | [SONIC X2 project](https://sonic-agibot-x2.github.io/sonic-transfer/) and [runtime](https://github.com/meetsitaram/sonic-x2) | Verify training artifacts separately from the quick play bundle |
+| GPU environment | [mjlab v1.6.0](https://github.com/mujocolab/mjlab/tree/v1.6.0) | Integrate SONIC and the contact curriculum |
+
+The H2 repository is primarily a deployment release. TRACE describes kinematic and dynamic alignment, encoder distillation and decoder adaptation with PPO. It reports about eight hours on one RTX PRO 6000 for G1 to H2 adaptation. This excludes source pretraining and is not a budget estimate for fighting.
+
+The X2 draft describes a joint codec with LoRA on the dynamics decoder while the core remains frozen. Its results concern embodiment transfer and tracking. Treat the release as a research example, with its stated evaluation limitations.
+
+[![TRACE adaptation workflow](https://bfm-trace.github.io/assets/method-overview.webp)](https://bfm-trace.github.io/)
+
+*TRACE method overview, Lan et al. Interface alignment precedes adaptation. [Project](https://bfm-trace.github.io/) and [paper](https://arxiv.org/abs/2610.17999).*
+
+## Proposed G1 adaptation
+
+For a linear layer, LoRA represents the adapted weights as `W = W_base + (alpha / rank) B A`. Start with zero effective update so the initial adapter reproduces the baseline. Freeze the intended base parameters, verify the trainable parameter list, and train the critic appropriate to the new environment.
+
+Keep the command encoder fixed in the first experiment. Add decoder adapters and compare against both the untouched baseline and a full fine tuning control at a matched sample budget. LoRA does not remove forward inference through the base network or the cost of physics. Record GPU hours to reach a predefined validation target.
+
+Use a staged curriculum:
+
+1. Reproduce nominal motions with the configured robot, padding and actuator model.
+2. Add bounded external disturbances, sensor noise, delay and parameter variation.
+3. Execute one skill against a compliant target, varying its position and motion.
+4. Include misses, blocked limbs and interruption into guard or stance.
+5. Train recovery from representative fallen states with suitable episode duration.
+6. Evaluate two interacting robots before considering self play.
+
+Balance motion accuracy with stability, legal target contact, recovery and actuator constraints. Do not reward raw impact magnitude as a substitute for task success. Preserve nominal motions in the sampling mixture and reserve unseen motions, target configurations and disturbances for evaluation.
+
+GigaBrain motivates interaction data and feasible command handling; it is not evidence that adding LoRA to SONIC reproduces its architecture or results. [Research reference](https://arxiv.org/abs/2608.18234)
+
+## Porting to mjlab
+
+The official [SONIC training guide](https://nvlabs.github.io/GR00T-WholeBodyControl/user_guide/training.html) uses Isaac Lab and PPO with auxiliary losses. Keep this as the reproduction path until the mjlab port is verified.
+
+The port needs matching joint order, coordinate frames, observation history, reference lookahead, action processing, motor model and control timing. Add SONIC's policy and adapter parameter groups to the learner explicitly; the standard mjlab MLP checkpoint is not interchangeable with SONIC.
+
+Compare a saved batch through both input pipelines and exported policies, then compare short dynamic rollouts. Contact behavior requires separate calibration of collision shapes, friction, compliance, timestep and solver settings. See [mjlab's design](https://mujocolab.github.io/mjlab/v1.6.0/source/motivation.html) and [MuJoCo contact modeling](https://mujoco.readthedocs.io/en/stable/modeling.html#contact-parameters).
+
+For an independent tracking exercise, mjlab supplies `Mjlab-Tracking-Flat-Unitree-G1`. Use **mjlab's own CSV to NPZ converter**: body ordering differs from Isaac Lab, so an apparently compatible NPZ can attach targets to the wrong body. The v1.6.0 workflow uses a W&B motion registry. [Motion imitation instructions](https://mujocolab.github.io/mjlab/v1.6.0/source/training/motion_imitation.html)
+
+```bash
+uv run train Mjlab-Tracking-Flat-Unitree-G1 \
+  --registry-name YOUR_ENTITY/motions/YOUR_MOTION \
+  --env.scene.num-envs 1024
+```
+
+This trains the stock tracking task. It does not fine tune SONIC or train a contact skill.
+
+## AWS through SkyPilot
+
+The supplied [AWS example](../examples/sky_aws.yaml) runs a short stock G1 velocity training job. It pins mjlab v1.6.0 at commit `0fb8a681136be94ffc636a3dd423cabb97d91f10`, uses TensorBoard, and needs no motion dataset or W&B credential. It is an infrastructure smoke test, not the proposed fighting trainer. The YAML and command names were checked against source; no cloud training was run for this document.
+
+Install `uv`, SkyPilot and AWS CLI v2 locally. Configure your own AWS account and an enabled GPU region with sufficient quota and SkyPilot permissions. SSO users can use a named profile:
+
+```bash
+uv tool install "skypilot[aws]"
+aws configure sso --profile robot-fights
+export AWS_PROFILE=robot-fights
+aws sso login --profile robot-fights
+sky check aws
+sky launch -c robot-fights-dev examples/sky_aws.yaml
+sky logs robot-fights-dev
+```
+
+Run the launch command from this repository's root. L4 is an initial resource request; choose a supported GPU and region after checking availability. Launching creates billable resources. [AWS setup](https://docs.skypilot.ai/en/latest/cloud-setup/cloud-permissions/aws.html)
+
+The example intentionally leaves the instance running so the first checkpoint can be inspected and retrieved. Copy outputs before terminating it:
+
+```bash
+mkdir -p runs
+rsync -av robot-fights-dev:~/robot_fights_mjlab/logs/ runs/
+sky logs robot-fights-dev --sync-down
+sky down robot-fights-dev
+```
+
+The SSH alias is created by SkyPilot. `--sync-down` retrieves job logs, not arbitrary model files. Confirm the model files and resolved configs arrived before running `sky down`. [CLI reference](https://docs.skypilot.ai/en/latest/reference/cli.html)
+
+For recurring training, write checkpoints to durable storage, test resume, then enable automatic teardown or managed jobs. Persist model, optimizer, normalizer, curriculum and random state where exact resume is required. Spot recovery depends on that application support. mjlab's [upstream cloud templates](https://mujocolab.github.io/mjlab/v1.6.0/source/training/cloud.html) are a useful next step.

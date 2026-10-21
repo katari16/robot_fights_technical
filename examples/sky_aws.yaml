@@ -1,0 +1,39 @@
+# Stock mjlab infrastructure test. This does not train SONIC or combat skills.
+# Run from the repository root: sky launch -c robot-fights-dev examples/sky_aws.yaml
+# The instance stays up for output retrieval. Finish with: sky down robot-fights-dev
+name: robot-fights-mjlab
+
+resources:
+  cloud: aws
+  accelerators: L4:1
+  disk_size: 100
+
+envs:
+  NUM_ENVS: "512"
+  MAX_ITERATIONS: "100"
+  MUJOCO_GL: egl
+
+setup: |
+  set -euo pipefail
+  sudo apt-get update
+  sudo apt-get install -y libegl-dev
+  if ! command -v uv >/dev/null 2>&1; then
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+  fi
+  export PATH="$HOME/.local/bin:$PATH"
+  if [ ! -d "$HOME/robot_fights_mjlab/.git" ]; then
+    git clone --depth 1 --branch v1.6.0 https://github.com/mujocolab/mjlab.git "$HOME/robot_fights_mjlab"
+  fi
+  cd "$HOME/robot_fights_mjlab"
+  test "$(git rev-parse HEAD)" = "0fb8a681136be94ffc636a3dd423cabb97d91f10"
+  uv sync --locked --no-dev
+
+run: |
+  set -euo pipefail
+  export PATH="$HOME/.local/bin:$PATH"
+  cd "$HOME/robot_fights_mjlab"
+  uv run train Mjlab-Velocity-Flat-Unitree-G1 \
+    --env.scene.num-envs "$NUM_ENVS" \
+    --agent.max-iterations "$MAX_ITERATIONS" \
+    --agent.logger tensorboard \
+    --gpu-ids all
