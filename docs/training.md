@@ -2,6 +2,8 @@
 
 [Main guide](../README.md)
 
+This guide follows the adaptation path: begin with a working SONIC controller, then change its behavior through a contact curriculum and measured fine tuning. For a controller whose weights are learned from scratch, see [scratch training and SuperMimic](from_scratch.md). The two paths should eventually meet at the same evaluation suite.
+
 ## What is available
 
 | Component | Starting point | Work still required |
@@ -10,6 +12,7 @@
 | Transfer method | [TRACE paper](https://arxiv.org/abs/2610.17999) and [H2 deployment](https://github.com/QinnyuLan/SONIC_unitree_h2) | Adapt the method to G1 contact tasks |
 | Decoder LoRA example | [SONIC X2 project](https://sonic-agibot-x2.github.io/sonic-transfer/) and [runtime](https://github.com/meetsitaram/sonic-x2) | Verify training artifacts separately from the quick play bundle |
 | GPU environment | [mjlab v1.6.0](https://github.com/mujocolab/mjlab/tree/v1.6.0) | Integrate SONIC and the contact curriculum |
+| Alternative learning method | [SuperMimic project](https://supermimic.github.io/) | Reproduce the learner and validate any contact extension; see [scratch training](from_scratch.md) |
 
 The H2 repository is primarily a deployment release. TRACE describes kinematic and dynamic alignment, encoder distillation and decoder adaptation with PPO. It reports about eight hours on one RTX PRO 6000 for G1 to H2 adaptation. This excludes source pretraining and is not a budget estimate for fighting.
 
@@ -37,6 +40,18 @@ Use a staged curriculum:
 Balance motion accuracy with stability, legal target contact, recovery and actuator constraints. Do not reward raw impact magnitude as a substitute for task success. Preserve nominal motions in the sampling mixture and reserve unseen motions, target configurations and disturbances for evaluation.
 
 GigaBrain motivates interaction data and feasible command handling; it is not evidence that adding LoRA to SONIC reproduces its architecture or results. [Research reference](https://arxiv.org/abs/2608.18234)
+
+## Follow one skill through an experiment
+
+Use a jab as the first complete contact task. Its reference should include the weight shift, extension and return to guard. In the initial scene, place a stationary padded target at a reachable position and test whether the nominal controller can finish the sequence. Save this result before changing the policy.
+
+Next, train the adapter with a mixture of nominal motions and target interactions. Define success over the full sequence: the intended surface makes allowed contact, the robot remains within the tested actuator envelope, and it reaches an acceptable exit state. A low hand-position error alone misses the reason we are adding contact training.
+
+Widen one part of the scene at a time. Move the target slightly, change its compliance, then include motion and external disturbances. Maintain a separate evaluation set with target settings never used for updates. Include misses and blocked attempts even when they lower the average score; those cases determine whether the pilot can trust the skill during a match.
+
+Compare the original checkpoint, adapter and full fine tuning control on the same trials. Record the number of attempts, completed skills, falls, successful recoveries and limit violations. Retest walking and turning after each change. Save the result with the robot model and adapter version so another developer can repeat the comparison.
+
+This is our proposed league experiment. The linked transfer papers provide adaptation methods, while this contact curriculum still needs implementation and measurement on the chosen G1.
 
 ## Porting to mjlab
 

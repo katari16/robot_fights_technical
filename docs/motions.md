@@ -35,3 +35,9 @@ These stages have different jobs. Retargeting finds compatible poses; simulation
 For mjlab, use its [motion preprocessing workflow](https://mujocolab.github.io/mjlab/v1.6.0/source/training/motion_imitation.html). For SONIC, use its own [training data workflow](https://nvlabs.github.io/GR00T-WholeBodyControl/user_guide/training.html). A shared file extension does not imply matching coordinates, joints or body indices.
 
 Keep entire source clips or recording sessions in a single data split. Adjacent frames from one demonstration should not appear in both training and validation. Include failed contact and recovery trials in the evaluation report, not just successful tracking error.
+
+## Follow an existing example
+
+The [Robo Jab repository](https://github.com/abtonmoy/ai_hackathon_calhacks) connects phone video, GVHMR, GMR and a G1 tracking trainer. Its [animated pipeline](demonstrations.md#a-punch-before-contact-training) makes the intermediate artifacts visible. Use it to understand how a recorded movement reaches a policy; its reference formats and trainer configuration still need to be matched to your own stack.
+
+Once a reference is ready, choose between [training a tracker from scratch](from_scratch.md) and [adapting an existing controller](training.md). Both routes need dynamic execution tests, and either route needs additional scenes and evaluation when the skill is expected to make physical contact.
